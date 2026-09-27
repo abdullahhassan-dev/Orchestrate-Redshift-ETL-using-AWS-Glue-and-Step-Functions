@@ -1,0 +1,28 @@
+-- Load step: read the Spectrum external table over S3 Parquet and load it
+-- into the internal Redshift table, casting types explicitly instead of
+-- SELECT * so column types never need to match positionally by accident.
+TRUNCATE TABLE public.reviews;
+
+INSERT INTO public.reviews (
+    marketplace, customer_id, review_id, product_id, product_parent,
+    product_title, product_category, star_rating, helpful_votes, total_votes,
+    vine, verified_purchase, review_headline, review_body, review_date, review_year
+)
+SELECT
+    marketplace,
+    customer_id,
+    review_id,
+    product_id,
+    product_parent,
+    product_title,
+    product_category,
+    star_rating,
+    helpful_votes,
+    total_votes,
+    (vine = 'Y')              AS vine,
+    (verified_purchase = 'Y') AS verified_purchase,
+    review_headline,
+    review_body,
+    CAST(review_date AS DATE) AS review_date,
+    review_year
+FROM spectrum_reviews.reviews_ext;

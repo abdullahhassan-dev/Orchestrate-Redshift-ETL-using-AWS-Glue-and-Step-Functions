@@ -1,0 +1,9 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored, never commit real secrets.
+
+aws_region                = "us-east-1"
+aws_profile                = "default"
+project_name                = "redshift-etl"
+redshift_master_password    = "ChangeMe123!"
+allowed_cidr                = "0.0.0.0/0" # restrict to your IP, e.g. "1.2.3.4/32"
+categories                  = ["Apparel"] # must match the product_category=<X>/ partitions actually uploaded to S3
+alert_email                 = "you@example.com"

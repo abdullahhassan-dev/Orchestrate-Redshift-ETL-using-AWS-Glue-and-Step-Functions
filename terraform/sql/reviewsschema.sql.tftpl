@@ -1,0 +1,68 @@
+-- Idempotent setup: external (Spectrum) schema/table over the Parquet data
+-- in S3, plus the internal Redshift table the data gets loaded into.
+-- Safe to re-run.
+
+DROP TABLE IF EXISTS public.reviews;
+DROP TABLE IF EXISTS spectrum_reviews.reviews_ext;
+DROP SCHEMA IF EXISTS spectrum_reviews;
+
+CREATE EXTERNAL SCHEMA spectrum_reviews
+FROM DATA CATALOG
+DATABASE 'spectrum_reviews_db'
+IAM_ROLE '${iam_role_arn}'
+CREATE EXTERNAL DATABASE IF NOT EXISTS;
+
+-- Column types here match the Parquet schema written by prepare_data.py
+-- exactly (see PARQUET_SCHEMA in that script). review_date is kept as
+-- VARCHAR, not DATE, because it is written to Parquet as a plain
+-- 'YYYY-MM-DD' string; casting to DATE happens below when loading into
+-- public.reviews instead, which avoids a Spectrum external-table type
+-- mismatch.
+CREATE EXTERNAL TABLE spectrum_reviews.reviews_ext (
+    marketplace       VARCHAR(10),
+    customer_id       BIGINT,
+    review_id         VARCHAR(20),
+    product_id        VARCHAR(20),
+    product_parent    BIGINT,
+    product_title     VARCHAR(500),
+    star_rating       INTEGER,
+    helpful_votes     INTEGER,
+    total_votes       INTEGER,
+    vine              VARCHAR(5),
+    verified_purchase VARCHAR(5),
+    review_headline   VARCHAR(500),
+    review_body       VARCHAR(65535),
+    review_date       VARCHAR(10),
+    review_year       INTEGER
+)
+PARTITIONED BY (product_category VARCHAR(50))
+STORED AS PARQUET
+LOCATION '${s3_data_location}';
+
+%{ for category in categories ~}
+ALTER TABLE spectrum_reviews.reviews_ext
+ADD IF NOT EXISTS PARTITION (product_category='${category}')
+LOCATION '${s3_data_location}product_category=${category}/';
+%{ endfor ~}
+
+CREATE TABLE public.reviews (
+    marketplace       VARCHAR(10),
+    customer_id       BIGINT,
+    review_id         VARCHAR(20),
+    product_id        VARCHAR(20),
+    product_parent    BIGINT,
+    product_title     VARCHAR(500),
+    product_category  VARCHAR(50),
+    star_rating       SMALLINT,
+    helpful_votes     INTEGER,
+    total_votes       INTEGER,
+    vine              BOOLEAN,
+    verified_purchase BOOLEAN,
+    review_headline   VARCHAR(500),
+    review_body       VARCHAR(65535),
+    review_date       DATE,
+    review_year       SMALLINT
+)
+DISTSTYLE KEY
+DISTKEY (product_id)
+SORTKEY (review_date);

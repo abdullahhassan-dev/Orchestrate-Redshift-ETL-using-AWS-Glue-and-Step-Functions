@@ -1,0 +1,22 @@
+# Terraform
+terraform/.terraform/
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/terraform.tfvars
+terraform/*.tfplan
+
+# Data
+/dataset/
+/data/
+*.tsv
+*.tsv.zip
+*.crdownload
+
+# Kaggle credentials
+kaggle.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/

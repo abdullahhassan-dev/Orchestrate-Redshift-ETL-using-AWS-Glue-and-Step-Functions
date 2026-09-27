@@ -1,0 +1,114 @@
+IAM ROLES
+Orchestrate Redshift ETL using AWS Glue and Step Functions
+
+Names match convention.txt. Each entry: trust policy (who assumes it), then
+the permissions it needs and why.
+
+
+1. redshift-etl-dev-glue-role
+   Assumed by: glue.amazonaws.com
+   Used by: both Glue Python Shell jobs (load and, if Glue instead of
+   Lambda, summary)
+
+   - Managed policy AWSGlueServiceRole
+     Baseline Glue permissions (CloudWatch Logs, ENI management for the
+     VPC connection to Redshift).
+
+   - S3, scoped to the two project buckets only:
+       s3:GetObject, s3:ListBucket   on redshift-etl-dev-scripts-<suffix>
+                                        and its /*
+       s3:GetObject, s3:ListBucket   on redshift-etl-dev-data-<suffix>/parquet/*
+                                        (read input, if the load job reads
+                                        Parquet itself instead of a plain
+                                        Redshift COPY)
+       s3:PutObject                  on redshift-etl-dev-data-<suffix>/summary/*
+                                        (only if the summary job is Glue and
+                                        writes output itself rather than via
+                                        Redshift UNLOAD)
+     Do not grant AmazonS3FullAccess, the job only ever touches these two
+     buckets.
+
+   - secretsmanager:GetSecretValue
+       on redshift-etl-dev-redshift-secret-<suffix>
+     Needed to read the Redshift username/password/host at runtime.
+
+   Not needed: no Redshift API permissions (glue connects over JDBC with
+   the secret's username/password, not the AWS Redshift API), no Glue Data
+   Catalog permissions (COPY reads straight from S3, there is no Spectrum
+   external table in this version).
+
+
+2. redshift-etl-dev-redshift-role
+   Assumed by: redshift.amazonaws.com
+   Attached to: the Redshift cluster's iam_roles list
+
+   - s3:GetObject, s3:ListBucket
+       on redshift-etl-dev-data-<suffix>/parquet/*
+     Needed for the COPY command to read the Parquet files from S3.
+
+   - s3:PutObject
+       on redshift-etl-dev-data-<suffix>/summary/*
+     Needed only if the summary step runs UNLOAD from inside Redshift
+     (recommended over having Glue/Lambda pull rows out itself).
+
+   Not needed this time: no Glue Data Catalog permissions. The previous
+   Spectrum-based design needed AWSGlueConsoleFullAccess on this role for
+   CREATE EXTERNAL SCHEMA ... FROM DATA CATALOG; a plain COPY does not use
+   the Data Catalog at all, so that grant is dropped.
+
+
+3. redshift-etl-dev-sfn-role
+   Assumed by: states.amazonaws.com
+   Used by: the state machine
+
+   - glue:StartJobRun, glue:GetJobRun, glue:GetJobRuns, glue:BatchStopJobRun
+       scoped to the load job's ARN (and the summary job's ARN too, if
+       that step is also Glue)
+
+   - events:PutTargets, events:PutRule, events:DescribeRule
+       scoped to
+       arn:aws:events:<region>:<account-id>:rule/StepFunctionsGetEventForGlueJobRunRule
+     Required by the .sync integration Step Functions uses to block on a
+     Glue job until it finishes.
+
+   - lambda:InvokeFunction
+       scoped to the summary Lambda's ARN
+     Only needed if the summary step is Lambda instead of Glue. Plain
+     Lambda invoke through arn:aws:states:::lambda:invoke is already
+     synchronous, no extra EventBridge permission needed for it (that is
+     only a Glue/ECS/Batch .sync requirement).
+
+   - sns:Publish
+       scoped to redshift-etl-dev-failure-topic's ARN
+     For the Catch -> NotifyFailure state.
+
+
+4. redshift-etl-dev-lambda-role   (only if the summary step is Lambda)
+   Assumed by: lambda.amazonaws.com
+
+   - Managed policy AWSLambdaBasicExecutionRole
+     CloudWatch Logs.
+
+   - redshift-data:ExecuteStatement, redshift-data:DescribeStatement,
+     redshift-data:GetStatementResult
+       scoped to the cluster's ARN
+     Recommended approach: run the summary/UNLOAD query through the
+     Redshift Data API rather than a JDBC driver. This means the Lambda
+     does not need to sit inside the VPC or bundle a Postgres driver, no
+     ENI cold start cost either.
+
+   - secretsmanager:GetSecretValue
+       on redshift-etl-dev-redshift-secret-<suffix>
+     The Data API authenticates using this secret
+     (redshift-data:ExecuteStatement's SecretArn parameter).
+
+   Not needed: S3 permissions. The UNLOAD itself runs inside Redshift
+   using the cluster's own IAM role (#2 above), the Lambda only submits
+   the SQL and polls for completion.
+
+
+5. QuickSight (manual, not Terraform-managed)
+   In the QuickSight console: Manage QuickSight -> Security & permissions
+   -> grant QuickSight's own service role read access to
+   redshift-etl-dev-data-<suffix>/summary/. This is a QuickSight account
+   setting, not an IAM role this stack creates.

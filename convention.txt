@@ -1,0 +1,91 @@
+NAMING CONVENTION
+Orchestrate Redshift ETL using AWS Glue and Step Functions
+
+Pattern: <project>-<env>-<component>[-<qualifier>]
+  project = redshift-etl
+  env     = dev (prod later if ever promoted)
+
+Bucket names are globally unique across all of AWS, so every S3 bucket name
+below ends in a short suffix (random 8 hex chars, or your AWS account ID's
+last 6 digits, pick one convention and use it everywhere). <suffix> stands
+for that below.
+
+Tags on every resource: Project=redshift-etl, Environment=dev, ManagedBy=terraform
+
+
+DIAGRAM COMPONENT -> RESOURCE NAME
+-----------------------------------
+
+S3 Scripts (bucket)
+  redshift-etl-dev-scripts-<suffix>
+  prefixes:
+    python/                 Glue Python Shell script + redshift_module egg
+    sql/                    load.sql, summary.sql
+
+S3 Data (bucket)
+  redshift-etl-dev-data-<suffix>
+  prefixes:
+    parquet/product_category=<category>/   input Parquet (5 categories)
+    summary/                               output of the summary step
+
+AWS Secrets Manager
+  redshift-etl-dev-redshift-secret-<suffix>
+  contents: username, password, engine, host, port, dbname
+
+Redshift
+  cluster identifier   redshift-etl-dev-cluster
+  database             reviews
+  schema                public
+  table (loaded data)   public.reviews
+  table (summary), only if written back into Redshift too   public.reviews_summary
+  subnet group          redshift-etl-dev-subnet-group
+  security group        redshift-etl-dev-redshift-sg
+
+Glue Python Shell Job Runs
+  connection             redshift-etl-dev-redshift-connection
+  job 1 (load)           redshift-etl-dev-load-job          runs sql/etl.sql
+                          (TRUNCATE + COPY public.reviews FROM S3 Parquet,
+                          no Spectrum external table)
+  job 2 (summary)         redshift-etl-dev-summary-job        runs sql/topreviews.sql
+                          (only if summary step is Glue, not Lambda)
+
+Lambda (only if summary step is Lambda instead of Glue)
+  function                redshift-etl-dev-summary-fn
+
+Step Functions State Machine
+  state machine            redshift-etl-dev-state-machine
+  states:
+    LoadReviews             Glue job 1 (COPY into Redshift)
+    SummarizeReviews         Glue job 2 or Lambda invoke
+    NotifyFailure             SNS publish on any Catch
+
+SNS Job Failure Topic
+  topic                    redshift-etl-dev-failure-topic
+  subscription              email, address set via alert_email variable
+
+Amazon QuickSight
+  not Terraform-managed. Data source manifest points at
+  s3://redshift-etl-dev-data-<suffix>/summary/
+  Manual step in the QuickSight console.
+
+Users
+  IAM users/roles that view QuickSight dashboards, not provisioned by this
+  stack.
+
+
+IAM ROLES (see roles.txt for what each one needs and why)
+-----------------------------------------------------------
+  redshift-etl-dev-glue-role         Glue execution role
+  redshift-etl-dev-redshift-role      attached to the Redshift cluster
+  redshift-etl-dev-sfn-role            Step Functions execution role
+  redshift-etl-dev-lambda-role         Lambda execution role, only if summary step is Lambda
+
+
+FUTURE (Phase 2, not built yet)
+---------------------------------
+  EventBridge rule (S3 upload trigger)   redshift-etl-dev-s3-trigger-rule
+  Lambda (starts state machine)           redshift-etl-dev-trigger-fn
+  Lambda (data quality check)             redshift-etl-dev-dq-check-fn
+  SQS queue (failed runs)                 redshift-etl-dev-failed-runs-queue
+  SQS dead-letter queue                   redshift-etl-dev-failed-runs-dlq
+
