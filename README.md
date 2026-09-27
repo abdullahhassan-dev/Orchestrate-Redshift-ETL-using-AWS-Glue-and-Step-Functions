@@ -1,16 +1,5 @@
 # Orchestrate Redshift ETL using AWS Glue and Step Functions
 
-Adapted from the ProjectPro project of the same name. A Step Functions state
-machine runs one AWS Glue Python Shell job three times in sequence: create
-the Redshift Spectrum schema over S3 Parquet data, load it into a Redshift
-table, then aggregate and export the top reviewed products back to S3. Any
-failure retries with backoff, then publishes the real error to SNS.
-
-The original project used the AWS public dataset
-`s3://amazon-reviews-pds/parquet/`, which is no longer publicly readable
-(403 Access Denied). This version uses a Kaggle mirror instead, converted to
-Parquet by `data_prep/prepare_data.py`.
-
 ## Architecture
 
 - **S3 bucket** holds the Glue script, SQL files, the Parquet data
