@@ -65,10 +65,10 @@ resource "aws_security_group" "redshift_sg" {
   # reach the cluster.
   ingress {
     description = "Self"
-    from_port   = 5439
-    to_port     = 5439
-    protocol    = "tcp"
-    self        = true
+    from_port = 0
+    to_port   = 65535
+    protocol  = "tcp"
+    self      = true
   }
 
   egress {

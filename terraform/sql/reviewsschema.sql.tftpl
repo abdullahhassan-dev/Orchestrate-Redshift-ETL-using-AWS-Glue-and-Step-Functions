@@ -28,11 +28,11 @@ CREATE EXTERNAL TABLE spectrum_reviews.reviews_ext (
     star_rating       INTEGER,
     helpful_votes     INTEGER,
     total_votes       INTEGER,
-    vine              VARCHAR(5),
-    verified_purchase VARCHAR(5),
+    vine              BOOLEAN,
+    verified_purchase BOOLEAN,
     review_headline   VARCHAR(500),
     review_body       VARCHAR(65535),
-    review_date       VARCHAR(10),
+    review_date       DATE,
     review_year       INTEGER
 )
 PARTITIONED BY (product_category VARCHAR(50))
